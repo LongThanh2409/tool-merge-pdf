@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: file-to-pdf-converter
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /health
+    region: singapore
+    plan: 1c-2g
+    envVars:
+      - key: MAX_FILE_SIZE_MB
+        value: 100
+      - key: MAX_TOTAL_SIZE_MB
+        value: 500
+      - key: MAX_FILES
+        value: 50
+      - key: MAX_CONCURRENCY
+        value: 1
+      - key: CONVERSION_TIMEOUT_SECONDS
+        value: 120
+      - key: ALLOWED_ORIGINS
+        sync: false
