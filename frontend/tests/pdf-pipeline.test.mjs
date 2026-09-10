@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { PDFDocument, rgb } from "pdf-lib";
+import { degrees, PDFDocument, rgb } from "pdf-lib";
 
 async function samplePdf(pageCount, marker) {
   const pdf = await PDFDocument.create();
@@ -37,4 +37,28 @@ test("gộp 10 PDF", async () => {
 
 test("từ chối PDF bị hỏng", async () => {
   await assert.rejects(() => PDFDocument.load(new Uint8Array([1, 2, 3, 4])));
+});
+
+test("chỉnh sửa cấp trang giữ đúng thứ tự, bản sao và góc xoay", async () => {
+  const source = await PDFDocument.create();
+  source.addPage([200, 300]);
+  source.addPage([220, 300]);
+  source.addPage([240, 300]);
+  const sourceBytes = await source.save();
+  const loaded = await PDFDocument.load(sourceBytes);
+  const output = await PDFDocument.create();
+  const edits = [
+    { sourceIndex: 2, rotation: 90 },
+    { sourceIndex: 0, rotation: 0 },
+    { sourceIndex: 0, rotation: 180 },
+  ];
+  for (const edit of edits) {
+    const [page] = await output.copyPages(loaded, [edit.sourceIndex]);
+    page.setRotation(degrees(edit.rotation));
+    output.addPage(page);
+  }
+  const edited = await PDFDocument.load(await output.save());
+  assert.equal(edited.getPageCount(), 3);
+  assert.deepEqual(edited.getPages().map((page) => page.getWidth()), [240, 200, 200]);
+  assert.deepEqual(edited.getPages().map((page) => page.getRotation().angle), [90, 0, 180]);
 });

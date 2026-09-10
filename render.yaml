@@ -6,7 +6,7 @@ services:
     dockerContext: ./backend
     healthCheckPath: /health
     region: singapore
-    plan: 1c-2g
+    plan: free
     envVars:
       - key: MAX_FILE_SIZE_MB
         value: 100

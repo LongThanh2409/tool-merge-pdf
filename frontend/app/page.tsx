@@ -3,8 +3,9 @@
 /* eslint-disable @next/next/no-img-element -- blob URL xem trước chỉ tồn tại trong trình duyệt */
 
 import Image from "next/image";
-import { ArrowDown, ArrowUp, CheckCircle2, ChevronDown, Download, ExternalLink, Eye, File, FileImage, FileSpreadsheet, FileText, GripVertical, LoaderCircle, LockKeyhole, Merge, Plus, RotateCcw, Settings, ShieldCheck, Sparkles, Trash2, UploadCloud, X, Zap } from "lucide-react";
+import { ArrowDown, ArrowUp, CheckCircle2, ChevronDown, Download, ExternalLink, Eye, File, FileImage, FileSpreadsheet, FileText, GripVertical, LoaderCircle, LockKeyhole, Merge, PencilLine, Plus, RotateCcw, Settings, ShieldCheck, Sparkles, Trash2, UploadCloud, X, Zap } from "lucide-react";
 import { ChangeEvent, DragEvent, useCallback, useEffect, useRef, useState } from "react";
+import PdfEditor from "./pdf-editor";
 
 const ACCEPTED = ["xlsx", "xls", "docx", "doc", "pptx", "ppt", "pdf", "jpg", "jpeg", "png", "webp"];
 const OFFICE = ["xlsx", "xls", "docx", "doc", "pptx", "ppt"];
@@ -20,7 +21,8 @@ const MIME_HINTS: Record<string, string[]> = {
 };
 
 type Item = { id: string; file: File; ext: string; status: "ready" | "processing" | "done" | "error"; rotation: number };
-type PreviewState = { itemId: string; name: string; kind: "image" | "pdf"; url: string; loading: boolean; message: string; error: string; pages?: number };
+type PageOrientation = "portrait" | "landscape";
+type PreviewState = { itemId: string; name: string; kind: "image" | "pdf"; url: string; loading: boolean; message: string; error: string; pages?: number; orientation: PageOrientation };
 type ExcelOptions = { layout: "original" | "fit_width" | "single_page" | "custom_scale"; pageSize: "a4" | "a3" | "letter"; orientation: "auto" | "portrait" | "landscape"; scale: number };
 
 const defaultOutputName = () => {
@@ -31,6 +33,12 @@ const defaultOutputName = () => {
 
 const formatSize = (bytes: number) => bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(0)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 const fileTone = (ext: string) => ["xlsx", "xls"].includes(ext) ? "green" : ["docx", "doc"].includes(ext) ? "blue" : ["pptx", "ppt"].includes(ext) ? "orange" : ext === "pdf" ? "red" : "purple";
+const pageOrientation = (page: { getWidth: () => number; getHeight: () => number; getRotation: () => { angle: number } }): PageOrientation => {
+  const sideways = Math.abs(page.getRotation().angle % 180) === 90;
+  const width = sideways ? page.getHeight() : page.getWidth();
+  const height = sideways ? page.getWidth() : page.getHeight();
+  return width >= height ? "landscape" : "portrait";
+};
 
 function TypeIcon({ ext }: { ext: string }) {
   const props = { size: 21, strokeWidth: 2 };
@@ -121,6 +129,8 @@ export default function Home() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [preview, setPreview] = useState<PreviewState | null>(null);
   const [resultPreviewOpen, setResultPreviewOpen] = useState(false);
+  const [resultOrientation, setResultOrientation] = useState<PageOrientation>("portrait");
+  const [editingPdf, setEditingPdf] = useState<Item | null>(null);
   const [excelOptions, setExcelOptions] = useState<ExcelOptions>({ layout: "fit_width", pageSize: "a4", orientation: "auto", scale: 85 });
   const inputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -195,14 +205,18 @@ export default function Home() {
   const previewItem = async (item: Item) => {
     closePreview();
     const kind = ["jpg", "jpeg", "png", "webp"].includes(item.ext) ? "image" : "pdf";
-    setPreview({ itemId: item.id, name: item.file.name, kind, url: "", loading: true, message: "Đang chuẩn bị bản xem trước...", error: "" });
+    const expectedOrientation: PageOrientation = excelOptions.orientation === "landscape" && ["xlsx", "xls"].includes(item.ext) ? "landscape" : "portrait";
+    setPreview({ itemId: item.id, name: item.file.name, kind, url: "", loading: true, message: "Đang chuẩn bị bản xem trước...", error: "", orientation: expectedOrientation });
     const controller = new AbortController();
     previewAbortRef.current = controller;
     try {
       if (!(await hasValidSignature(item))) throw new Error("Tệp có thể đã hỏng hoặc không đúng định dạng.");
       if (kind === "image") {
+        const bitmap = await createImageBitmap(item.file, { imageOrientation: "from-image" });
+        const orientation: PageOrientation = bitmap.width >= bitmap.height ? "landscape" : "portrait";
+        bitmap.close();
         const url = URL.createObjectURL(item.file);
-        setPreview({ itemId: item.id, name: item.file.name, kind, url, loading: false, message: "", error: "" });
+        setPreview({ itemId: item.id, name: item.file.name, kind, url, loading: false, message: "", error: "", orientation });
         return;
       }
       let pdfBytes: ArrayBuffer;
@@ -214,8 +228,10 @@ export default function Home() {
       }
       const { PDFDocument } = await import("pdf-lib");
       const document = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
+      if (!document.getPageCount()) throw new Error("PDF không có trang nào để xem trước.");
+      const orientation = pageOrientation(document.getPage(0));
       const url = URL.createObjectURL(new Blob([new Uint8Array(pdfBytes)], { type: "application/pdf" }));
-      setPreview({ itemId: item.id, name: item.file.name, kind: "pdf", url, loading: false, message: "", error: "", pages: document.getPageCount() });
+      setPreview({ itemId: item.id, name: item.file.name, kind: "pdf", url, loading: false, message: "", error: "", pages: document.getPageCount(), orientation });
     } catch (cause) {
       if (controller.signal.aborted) return;
       const message = cause instanceof Error ? cause.message : "Không thể tạo bản xem trước.";
@@ -267,6 +283,7 @@ export default function Home() {
       result.setTitle(outputName.replace(/\.pdf$/i, "")); result.setCreator("GopPDF");
       setProcessingMessage("Đang kiểm tra và hoàn tất PDF...");
       setPageCount(result.getPageCount());
+      if (result.getPageCount()) setResultOrientation(pageOrientation(result.getPage(0)));
       const pdfBytes = await result.save();
       setDownloadUrl(URL.createObjectURL(new Blob([new Uint8Array(pdfBytes)], { type: "application/pdf" })));
       setProgress(100);
@@ -279,6 +296,16 @@ export default function Home() {
 
   const cleanName = outputName.trim().replace(/[\\/:*?"<>|]/g, "-") || "tai-lieu-da-gop.pdf";
   const finalName = cleanName.toLowerCase().endsWith(".pdf") ? cleanName : `${cleanName}.pdf`;
+  const closePdfEditor = useCallback(() => setEditingPdf(null), []);
+  const applyPdfEdits = useCallback((editedFile: File) => {
+    if (!editingPdf) return;
+    convertedCacheRef.current.delete(editingPdf.id);
+    setItems((current) => current.map((item) => item.id === editingPdf.id ? { ...item, file: editedFile, rotation: 0, status: "ready" } : item));
+    setDownloadUrl((url) => { if (url) URL.revokeObjectURL(url); return null; });
+    setProgress(0);
+    setResultPreviewOpen(false);
+    setEditingPdf(null);
+  }, [editingPdf]);
 
   return <main className="app-shell">
     <nav className="topbar" aria-label="Điều hướng chính">
@@ -309,7 +336,7 @@ export default function Home() {
             <span className={`type-icon ${fileTone(item.ext)}`}><TypeIcon ext={item.ext} /></span>
             <div className="file-details"><strong title={item.file.name}>{item.file.name}</strong><span>{formatSize(item.file.size)} · {item.ext.toUpperCase()}</span></div>
             <div className={`file-status ${item.status}`}>{item.status === "processing" ? <><LoaderCircle size={14} className="spin" /> Đang xử lý</> : item.status === "done" ? <><CheckCircle2 size={14} /> Đã xong</> : item.status === "error" ? "Có lỗi" : OFFICE.includes(item.ext) ? "Sẽ chuyển đổi" : "Sẵn sàng"}</div>
-            <div className="row-actions"><button onClick={() => move(index, index - 1)} disabled={index === 0} aria-label={`Đưa ${item.file.name} lên`}><ArrowUp size={16} /></button><button onClick={() => move(index, index + 1)} disabled={index === items.length - 1} aria-label={`Đưa ${item.file.name} xuống`}><ArrowDown size={16} /></button><button onClick={() => previewItem(item)} aria-label={`Xem trước ${item.file.name}`} title="Xem trước"><Eye size={16} /></button><button onClick={() => rotate(item.id)} aria-label={`Xoay ${item.file.name}`} title={`Xoay trang${item.rotation ? ` (${item.rotation}°)` : ""}`}><RotateCcw size={16} /></button><button className="delete" onClick={() => remove(item.id)} aria-label={`Xóa ${item.file.name}`}><Trash2 size={16} /></button></div>
+            <div className="row-actions"><button onClick={() => move(index, index - 1)} disabled={index === 0} aria-label={`Đưa ${item.file.name} lên`}><ArrowUp size={16} /></button><button onClick={() => move(index, index + 1)} disabled={index === items.length - 1} aria-label={`Đưa ${item.file.name} xuống`}><ArrowDown size={16} /></button><button onClick={() => previewItem(item)} aria-label={`Xem trước ${item.file.name}`} title="Xem trước"><Eye size={16} /></button>{item.ext === "pdf" && <button className="edit-pdf" onClick={() => { closePreview(); setEditingPdf(item); }} aria-label={`Chỉnh sửa ${item.file.name}`} title="Chỉnh sửa từng trang"><PencilLine size={16} /></button>}<button onClick={() => rotate(item.id)} aria-label={`Xoay ${item.file.name}`} title={`Xoay trang${item.rotation ? ` (${item.rotation}°)` : ""}`}><RotateCcw size={16} /></button><button className="delete" onClick={() => remove(item.id)} aria-label={`Xóa ${item.file.name}`}><Trash2 size={16} /></button></div>
           </div>)}</div>
           <div className="order-note"><GripVertical size={15} /> Kéo thả để sắp xếp thứ tự trang trong PDF</div>
           {items.some((item) => ["xlsx", "xls"].includes(item.ext)) && <div className="excel-layout-note"><FileSpreadsheet size={18} /><div><strong>Bảng tính: {excelOptions.layout === "fit_width" ? "vừa chiều rộng" : excelOptions.layout === "single_page" ? "vừa một trang" : excelOptions.layout === "custom_scale" ? `tỉ lệ ${excelOptions.scale}%` : "giữ bố cục gốc"}</strong><span>{excelOptions.layout === "original" ? "Dùng thiết lập in có sẵn trong Excel" : `${excelOptions.pageSize.toUpperCase()} · ${excelOptions.orientation === "auto" ? "tự chọn hướng trang" : excelOptions.orientation === "landscape" ? "trang ngang" : "trang dọc"}`}</span></div><button onClick={() => setSettingsOpen(true)}>Điều chỉnh</button></div>}
@@ -319,7 +346,7 @@ export default function Home() {
           <p className="privacy-line"><LockKeyhole size={14} /> Tệp được xử lý trong phiên này và không được lưu trữ lâu dài</p>
         </div>}
       </div>
-      {resultPreviewOpen && (isMerging || downloadUrl) && <aside className="merge-preview-panel" aria-label="Xem trước PDF đã gộp">
+      {resultPreviewOpen && (isMerging || downloadUrl) && <aside className={`merge-preview-panel ${resultOrientation}`} aria-label="Xem trước PDF đã gộp">
         <div className="merge-preview-header"><div><span>{isMerging ? "Đang tạo bản xem trước" : "PDF hoàn chỉnh"}</span><h2>{isMerging ? "Đang gộp tài liệu..." : finalName}</h2>{!isMerging && <p>{pageCount} trang · {items.length} tệp</p>}</div><button onClick={() => setResultPreviewOpen(false)} aria-label="Đóng khung xem trước"><X /></button></div>
         {isMerging ? <div className="merge-processing" aria-live="polite"><span className="processing-icon"><LoaderCircle className="spin" /></span><strong>{progress}% hoàn tất</strong><p>{processingMessage}</p><div className="modal-progress"><span style={{ width: `${progress}%` }} /></div><div className="processing-list">{items.map((item) => <div key={item.id} className={item.status}><span>{item.status === "done" ? <CheckCircle2 /> : item.status === "processing" ? <LoaderCircle className="spin" /> : <span className="pending-dot" />}</span><strong>{item.file.name}</strong></div>)}</div><button onClick={() => abortRef.current?.abort()}>Hủy xử lý</button></div> : downloadUrl && <><div className="merged-pdf-frame"><iframe src={`${downloadUrl}#toolbar=0&navpanes=0&view=FitH`} title={`Xem trước ${finalName}`} /></div><div className="merge-preview-footer"><span><CheckCircle2 /> Sẵn sàng tải xuống</span><div><a href={downloadUrl} target="_blank" rel="noreferrer"><ExternalLink /> Mở tab mới</a><a className="mini-download" href={downloadUrl} download={finalName}><Download /> Tải PDF</a></div></div></>}
       </aside>}
@@ -340,7 +367,7 @@ export default function Home() {
     </section>
 
     {preview && <div className="preview-overlay" role="dialog" aria-modal="true" aria-labelledby="preview-title" onMouseDown={(event) => { if (event.currentTarget === event.target) closePreview(); }}>
-      <div className="preview-card">
+      <div className={`preview-card ${preview.orientation}`}>
         <div className="preview-header"><div><span>Bản xem trước</span><h2 id="preview-title">{preview.name}</h2>{preview.pages && <p>{preview.pages} trang</p>}</div><button onClick={closePreview} aria-label="Đóng bản xem trước"><X /></button></div>
         <div className={`preview-canvas ${preview.kind}`}>
           {preview.loading ? <div className="preview-message"><LoaderCircle className="spin" /><strong>Đang chuẩn bị...</strong><p>{preview.message}</p></div> : preview.error ? <div className="preview-message error"><X /><strong>Không thể xem trước</strong><p>{preview.error}</p><button onClick={() => { const item = items.find((entry) => entry.id === preview.itemId); if (item) previewItem(item); }}>Thử lại</button></div> : preview.kind === "image" ? <img src={preview.url} alt={`Xem trước ${preview.name}`} /> : <iframe src={`${preview.url}#toolbar=0&navpanes=0`} title={`Xem trước ${preview.name}`} />}
@@ -348,6 +375,8 @@ export default function Home() {
         <div className="preview-footer"><span>{preview.kind === "image" ? "Ảnh gốc · tự động vừa trang A4 khi gộp" : "PDF giữ nguyên chất lượng văn bản và vector"}</span>{preview.url && <a href={preview.url} target="_blank" rel="noreferrer"><ExternalLink /> Mở trong tab mới</a>}</div>
       </div>
     </div>}
+
+    {editingPdf && <PdfEditor file={editingPdf.file} initialRotation={editingPdf.rotation} onClose={closePdfEditor} onApply={applyPdfEdits} />}
 
     {settingsOpen && <div className="processing-overlay" role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(event) => { if (event.currentTarget === event.target) setSettingsOpen(false); }}><div className="settings-card"><button className="close-settings" onClick={() => setSettingsOpen(false)} aria-label="Đóng cài đặt"><X /></button><h2 id="settings-title">Cài đặt</h2><label>Ngôn ngữ<input value="Tiếng Việt" disabled /></label><label>Tên tệp mặc định<input value={outputName} onChange={(event) => setOutputName(event.target.value)} /></label><div className="settings-divider"><span>Bố cục Excel</span></div><label>Cách chia trang<select value={excelOptions.layout} onChange={(event) => updateExcelOptions({ layout: event.target.value as ExcelOptions["layout"] })}><option value="fit_width">Vừa chiều rộng — khuyên dùng</option><option value="single_page">Thu nhỏ vừa một trang</option><option value="custom_scale">Tỉ lệ tùy chỉnh</option><option value="original">Giữ thiết lập in gốc</option></select></label>{excelOptions.layout === "custom_scale" && <label className="scale-control"><span>Tỉ lệ thu phóng <strong>{excelOptions.scale}%</strong></span><input type="range" min="25" max="150" step="5" value={excelOptions.scale} onChange={(event) => updateExcelOptions({ scale: Number(event.target.value) })} /><div><small>25%</small><small>100%</small><small>150%</small></div></label>}<div className="setting-pair"><label>Khổ giấy<select value={excelOptions.pageSize} disabled={excelOptions.layout === "original"} onChange={(event) => updateExcelOptions({ pageSize: event.target.value as ExcelOptions["pageSize"] })}><option value="a4">A4</option><option value="a3">A3</option><option value="letter">Letter</option></select></label><label>Hướng trang<select value={excelOptions.orientation} disabled={excelOptions.layout === "original"} onChange={(event) => updateExcelOptions({ orientation: event.target.value as ExcelOptions["orientation"] })}><option value="auto">Tự động</option><option value="landscape">Ngang</option><option value="portrait">Dọc</option></select></label></div><p className="settings-hint">“Vừa chiều rộng” chống mất cột tự động. “Tỉ lệ tùy chỉnh” cho phép chọn 25–150%; tỉ lệ lớn hơn giúp chữ rõ hơn nhưng có thể chia cột sang trang tiếp theo.</p><button className="primary-action" onClick={() => setSettingsOpen(false)}>Áp dụng cài đặt</button></div></div>}
 
