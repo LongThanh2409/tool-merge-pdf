@@ -138,10 +138,24 @@ export default function Home() {
   const abortRef = useRef<AbortController | null>(null);
   const previewAbortRef = useRef<AbortController | null>(null);
   const convertedCacheRef = useRef(new Map<string, ArrayBuffer>());
+  const mergeRunRef = useRef(0);
+
+  const invalidateOutput = useCallback(() => {
+    mergeRunRef.current += 1;
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setIsMerging(false);
+    setDownloadUrl((url) => { if (url) URL.revokeObjectURL(url); return null; });
+    setResultFile(null);
+    setResultPreviewOpen(false);
+    setPageCount(0);
+    setProgress(0);
+    setItems((current) => current.map((item) => item.status === "ready" ? item : { ...item, status: "ready" }));
+  }, []);
 
   const updateExcelOptions = (patch: Partial<ExcelOptions>) => {
     convertedCacheRef.current.clear();
-    setDownloadUrl(null);
+    invalidateOutput();
     setExcelOptions((current) => ({ ...current, ...patch }));
   };
 
@@ -164,11 +178,10 @@ export default function Home() {
     if (removedForTotal) problems.push("Một số tệp không được thêm vì tổng dung lượng vượt quá 500 MB");
     if (problems.length) setError(problems.join(" · "));
     if (valid.length) {
+      invalidateOutput();
       setItems((current) => [...current, ...valid].slice(0, MAX_FILES));
-      setDownloadUrl((url) => { if (url) URL.revokeObjectURL(url); return null; });
-      setProgress(0);
     }
-  }, [items]);
+  }, [invalidateOutput, items]);
 
   useEffect(() => {
     const onPaste = (event: ClipboardEvent) => {
@@ -192,11 +205,11 @@ export default function Home() {
   };
   const move = (from: number, to: number) => {
     if (to < 0 || to >= items.length || from === to) return;
+    invalidateOutput();
     setItems((current) => { const copy = [...current]; const [picked] = copy.splice(from, 1); copy.splice(to, 0, picked); return copy; });
-    setDownloadUrl(null);
   };
-  const remove = (id: string) => { convertedCacheRef.current.delete(id); setItems((current) => current.filter((item) => item.id !== id)); setDownloadUrl(null); setProgress(0); };
-  const rotate = (id: string) => { setItems((current) => current.map((item) => item.id === id ? { ...item, rotation: (item.rotation + 90) % 360 } : item)); setDownloadUrl(null); };
+  const remove = (id: string) => { invalidateOutput(); convertedCacheRef.current.delete(id); setItems((current) => current.filter((item) => item.id !== id)); };
+  const rotate = (id: string) => { invalidateOutput(); setItems((current) => current.map((item) => item.id === id ? { ...item, rotation: (item.rotation + 90) % 360 } : item)); };
 
   const closePreview = () => {
     previewAbortRef.current?.abort();
@@ -245,22 +258,31 @@ export default function Home() {
 
   const mergeFiles = async () => {
     if (!items.length || isMerging) return;
+    const runId = ++mergeRunRef.current;
+    const mergeItems = [...items];
     setError(""); setIsMerging(true); setProgress(4);
     setResultPreviewOpen(true);
     setPageCount(0);
     setResultFile(null);
     const controller = new AbortController();
     abortRef.current = controller;
+    const ensureCurrentRun = () => {
+      if (controller.signal.aborted || mergeRunRef.current !== runId) throw new DOMException("Đã hủy", "AbortError");
+    };
     setDownloadUrl((url) => { if (url) URL.revokeObjectURL(url); return null; });
     try {
       const { PDFDocument, degrees } = await import("pdf-lib");
+      ensureCurrentRun();
       const result = await PDFDocument.create();
-      for (let index = 0; index < items.length; index += 1) {
-        const item = items[index];
-        setProcessingMessage(`Đang xử lý tệp ${index + 1}/${items.length}: ${item.file.name}`);
+      for (let index = 0; index < mergeItems.length; index += 1) {
+        ensureCurrentRun();
+        const item = mergeItems[index];
+        setProcessingMessage(`Đang xử lý tệp ${index + 1}/${mergeItems.length}: ${item.file.name}`);
         setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, status: "processing" } : entry));
         if (!(await hasValidSignature(item))) throw new Error(`${item.file.name} có thể đã hỏng hoặc không đúng định dạng.`);
+        ensureCurrentRun();
         const bytes = await item.file.arrayBuffer();
+        ensureCurrentRun();
         if (item.ext === "pdf") {
           const source = await PDFDocument.load(bytes, { ignoreEncryption: true });
           const pages = await result.copyPages(source, source.getPageIndices());
@@ -280,23 +302,29 @@ export default function Home() {
           const pages = await result.copyPages(source, source.getPageIndices());
           pages.forEach((page) => { if (item.rotation) page.setRotation(degrees((page.getRotation().angle + item.rotation) % 360)); result.addPage(page); });
         }
+        ensureCurrentRun();
         setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, status: "done" } : entry));
-        setProgress(Math.round(((index + 1) / items.length) * 92));
+        setProgress(Math.round(((index + 1) / mergeItems.length) * 92));
       }
+      ensureCurrentRun();
       result.setTitle(outputName.replace(/\.pdf$/i, "")); result.setCreator("GopPDF");
       setProcessingMessage("Đang đóng gói và kiểm tra PDF...");
       setPageCount(result.getPageCount());
       if (result.getPageCount()) setResultOrientation(pageOrientation(result.getPage(0)));
       const pdfBytes = await result.save();
+      ensureCurrentRun();
       const completedFile = new File([new Uint8Array(pdfBytes)], finalName, { type: "application/pdf" });
       setResultFile(completedFile);
       setDownloadUrl(URL.createObjectURL(completedFile));
       setProgress(100);
     } catch (cause) {
+      if (mergeRunRef.current !== runId) return;
       if (cause instanceof DOMException && cause.name === "AbortError") setError("Đã hủy quá trình tạo PDF.");
       else setError(cause instanceof Error ? `Không thể xử lý: ${cause.message}` : "Không thể xử lý các tệp đã chọn.");
       setItems((current) => current.map((item) => item.status === "processing" ? { ...item, status: "error" } : item));
-    } finally { setIsMerging(false); abortRef.current = null; }
+    } finally {
+      if (mergeRunRef.current === runId) { setIsMerging(false); abortRef.current = null; }
+    }
   };
 
   const cleanName = outputName.trim().replace(/[\\/:*?"<>|]/g, "-") || "tai-lieu-da-gop.pdf";
@@ -305,12 +333,9 @@ export default function Home() {
   const applyPdfEdits = useCallback(async (editedFile: File) => {
     if (!editingPdf) return;
     if (editingPdf.kind === "source") {
+      invalidateOutput();
       convertedCacheRef.current.delete(editingPdf.item.id);
       setItems((current) => current.map((item) => item.id === editingPdf.item.id ? { ...item, file: editedFile, rotation: 0, status: "ready" } : item));
-      setDownloadUrl((url) => { if (url) URL.revokeObjectURL(url); return null; });
-      setResultFile(null);
-      setProgress(0);
-      setResultPreviewOpen(false);
     } else {
       const { PDFDocument } = await import("pdf-lib");
       const document = await PDFDocument.load(await editedFile.arrayBuffer(), { ignoreEncryption: true });
@@ -320,7 +345,7 @@ export default function Home() {
       setDownloadUrl((url) => { if (url) URL.revokeObjectURL(url); return URL.createObjectURL(editedFile); });
     }
     setEditingPdf(null);
-  }, [editingPdf]);
+  }, [editingPdf, invalidateOutput]);
 
   return <main className="app-shell">
     <nav className="topbar" aria-label="Điều hướng chính">
@@ -357,7 +382,7 @@ export default function Home() {
           {items.some((item) => ["xlsx", "xls"].includes(item.ext)) && <div className="excel-layout-note"><FileSpreadsheet size={18} /><div><strong>Bảng tính: {excelOptions.layout === "fit_width" ? "vừa chiều rộng" : excelOptions.layout === "single_page" ? "vừa một trang" : excelOptions.layout === "custom_scale" ? `tỉ lệ ${excelOptions.scale}%` : "giữ bố cục gốc"}</strong><span>{excelOptions.layout === "original" ? "Dùng thiết lập in có sẵn trong Excel" : `${excelOptions.pageSize.toUpperCase()} · ${excelOptions.orientation === "auto" ? "tự chọn hướng trang" : excelOptions.orientation === "landscape" ? "trang ngang" : "trang dọc"}`}</span></div><button onClick={() => setSettingsOpen(true)}>Điều chỉnh</button></div>}
           <div className="output-row"><label htmlFor="output-name">Tên tệp kết quả</label><div><input id="output-name" value={outputName} onChange={(event) => setOutputName(event.target.value)} /><span>PDF</span></div></div>
           {isMerging && <div className="progress-wrap" aria-live="polite"><div><span>Đang tạo PDF của bạn...</span><strong>{progress}%</strong></div><div className="progress-track"><span style={{ width: `${progress}%` }} /></div></div>}
-          {downloadUrl ? <div className="result-panel"><span className="result-check"><CheckCircle2 /></span><div><strong>PDF đã đóng gói và sẵn sàng xuất xưởng!</strong><p>{finalName} · {pageCount} trang · {items.length} tệp</p></div><a className="primary-action success" href={downloadUrl} download={finalName}><Download size={20} /> Tải PDF</a><div className="result-links"><button onClick={() => setResultPreviewOpen(true)}><Eye size={14} /> Xem PDF bên cạnh</button><button onClick={() => { convertedCacheRef.current.clear(); setItems([]); setDownloadUrl(null); setProgress(0); setResultPreviewOpen(false); }}>Gộp bộ tệp mới</button></div></div> : <button className="primary-action" onClick={mergeFiles} disabled={isMerging}>{isMerging ? <LoaderCircle className="spin" size={20} /> : <Merge size={20} />}{isMerging ? "Đang gộp tệp..." : `Gộp ${items.length} tệp thành PDF`}</button>}
+          {downloadUrl ? <div className="result-panel"><span className="result-check"><CheckCircle2 /></span><div><strong>PDF đã đóng gói và sẵn sàng xuất xưởng!</strong><p>{finalName} · {pageCount} trang · {items.length} tệp</p></div><a className="primary-action success" href={downloadUrl} download={finalName}><Download size={20} /> Tải PDF</a><div className="result-links"><button onClick={() => setResultPreviewOpen(true)}><Eye size={14} /> Xem PDF bên cạnh</button><button onClick={() => { invalidateOutput(); convertedCacheRef.current.clear(); setItems([]); }}>Gộp bộ tệp mới</button></div></div> : <button className="primary-action" onClick={mergeFiles} disabled={isMerging}>{isMerging ? <LoaderCircle className="spin" size={20} /> : <Merge size={20} />}{isMerging ? "Đang gộp tệp..." : `Gộp ${items.length} tệp thành PDF`}</button>}
           <p className="privacy-line"><LockKeyhole size={14} /> Tệp được xử lý trong phiên này và không được lưu trữ lâu dài</p>
         </div>}
       </div>

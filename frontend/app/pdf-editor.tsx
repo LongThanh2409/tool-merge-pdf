@@ -3,7 +3,7 @@
 /* eslint-disable @next/next/no-img-element -- thumbnail PDF là data URL sinh cục bộ trong trình duyệt */
 
 import { ArrowLeft, ArrowRight, Copy, GripVertical, LoaderCircle, RotateCcw, RotateCw, Save, Trash2, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import SausageFactoryLoader from "./sausage-factory-loader";
 
 type EditorPage = {
@@ -20,7 +20,13 @@ type PdfEditorProps = {
   onApply: (file: File) => void | Promise<void>;
 };
 
+type PageEffect = "move-left" | "move-right" | "rotate-left" | "rotate-right" | "duplicate" | "delete";
+type PageFeedback = { pageId: string; effect: PageEffect; message: string };
+
 const MAX_EDITOR_PAGES = 200;
+const EDITOR_RENDER_WIDTH = 960;
+const EDITOR_RENDER_MAX_SCALE = 2.5;
+const EDITOR_PREVIEW_QUALITY = 0.9;
 
 async function rotateThumbnail(source: string, direction: 90 | -90) {
   const image = new Image();
@@ -34,7 +40,7 @@ async function rotateThumbnail(source: string, direction: 90 | -90) {
   context.translate(canvas.width / 2, canvas.height / 2);
   context.rotate(direction * Math.PI / 180);
   context.drawImage(image, -image.width / 2, -image.height / 2);
-  return canvas.toDataURL("image/webp", 0.82);
+  return canvas.toDataURL("image/webp", EDITOR_PREVIEW_QUALITY);
 }
 
 export default function PdfEditor({ file, initialRotation, onClose, onApply }: PdfEditorProps) {
@@ -45,6 +51,8 @@ export default function PdfEditor({ file, initialRotation, onClose, onApply }: P
   const [error, setError] = useState("");
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [initialPageCount, setInitialPageCount] = useState(0);
+  const [pageFeedback, setPageFeedback] = useState<PageFeedback | null>(null);
+  const feedbackTimerRef = useRef<number | null>(null);
 
   const activeIndex = Math.max(0, pages.findIndex((page) => page.id === activeId));
   const activePage = pages[activeIndex];
@@ -57,6 +65,14 @@ export default function PdfEditor({ file, initialRotation, onClose, onApply }: P
     window.addEventListener("keydown", onKeyDown);
     return () => { document.body.style.overflow = previousOverflow; window.removeEventListener("keydown", onKeyDown); };
   }, [onClose, saving]);
+
+  useEffect(() => () => { if (feedbackTimerRef.current) window.clearTimeout(feedbackTimerRef.current); }, []);
+
+  const showPageFeedback = (pageId: string, effect: PageEffect, message: string) => {
+    if (feedbackTimerRef.current) window.clearTimeout(feedbackTimerRef.current);
+    setPageFeedback({ pageId, effect, message });
+    feedbackTimerRef.current = window.setTimeout(() => setPageFeedback(null), 700);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -81,14 +97,14 @@ export default function PdfEditor({ file, initialRotation, onClose, onApply }: P
           if (cancelled) break;
           const page = await pdfDocument.getPage(index + 1);
           const baseViewport = page.getViewport({ scale: 1, rotation: (page.rotate + initialRotation) % 360 });
-          const viewport = page.getViewport({ scale: Math.min(1.5, 320 / baseViewport.width), rotation: (page.rotate + initialRotation) % 360 });
+          const viewport = page.getViewport({ scale: Math.min(EDITOR_RENDER_MAX_SCALE, EDITOR_RENDER_WIDTH / baseViewport.width), rotation: (page.rotate + initialRotation) % 360 });
           const canvas = document.createElement("canvas");
           canvas.width = Math.ceil(viewport.width);
           canvas.height = Math.ceil(viewport.height);
           const context = canvas.getContext("2d", { alpha: false });
           if (!context) throw new Error("Trình duyệt không thể dựng trang PDF.");
           await page.render({ canvas, canvasContext: context, viewport }).promise;
-          rendered.push({ id: crypto.randomUUID(), sourceIndex: index, rotation: initialRotation, thumbnail: canvas.toDataURL("image/webp", 0.82) });
+          rendered.push({ id: crypto.randomUUID(), sourceIndex: index, rotation: initialRotation, thumbnail: canvas.toDataURL("image/webp", EDITOR_PREVIEW_QUALITY) });
           page.cleanup();
         }
         await pdfDocument.cleanup();
@@ -111,12 +127,14 @@ export default function PdfEditor({ file, initialRotation, onClose, onApply }: P
 
   const movePage = (from: number, to: number) => {
     if (to < 0 || to >= pages.length || from === to) return;
+    const movedPage = pages[from];
     setPages((current) => {
       const copy = [...current];
       const [picked] = copy.splice(from, 1);
       copy.splice(to, 0, picked);
       return copy;
     });
+    if (movedPage) showPageFeedback(movedPage.id, to < from ? "move-left" : "move-right", to < from ? "Đã lùi trang" : "Đã tiến trang");
   };
 
   const rotatePage = async (direction: 90 | -90) => {
@@ -124,6 +142,7 @@ export default function PdfEditor({ file, initialRotation, onClose, onApply }: P
     const id = activePage.id;
     const thumbnail = await rotateThumbnail(activePage.thumbnail, direction);
     setPages((current) => current.map((page) => page.id === id ? { ...page, thumbnail, rotation: (page.rotation + direction + 360) % 360 } : page));
+    showPageFeedback(id, direction < 0 ? "rotate-left" : "rotate-right", direction < 0 ? "Đã xoay trái" : "Đã xoay phải");
   };
 
   const duplicatePage = () => {
@@ -131,6 +150,7 @@ export default function PdfEditor({ file, initialRotation, onClose, onApply }: P
     const duplicate = { ...activePage, id: crypto.randomUUID() };
     setPages((current) => [...current.slice(0, activeIndex + 1), duplicate, ...current.slice(activeIndex + 1)]);
     setActiveId(duplicate.id);
+    showPageFeedback(duplicate.id, "duplicate", "Đã nhân bản trang");
   };
 
   const deletePage = () => {
@@ -138,6 +158,7 @@ export default function PdfEditor({ file, initialRotation, onClose, onApply }: P
     const next = pages[activeIndex + 1] || pages[activeIndex - 1];
     setPages((current) => current.filter((page) => page.id !== activePage.id));
     setActiveId(next.id);
+    showPageFeedback(next.id, "delete", "Đã xóa trang");
   };
 
   const applyChanges = async () => {
@@ -177,7 +198,7 @@ export default function PdfEditor({ file, initialRotation, onClose, onApply }: P
           <div className="pdf-page-grid">{pages.map((page, index) => <button
             type="button"
             key={page.id}
-            className={`pdf-page-thumb ${page.id === activeId ? "active" : ""} ${dragIndex === index ? "dragging" : ""}`}
+            className={`pdf-page-thumb ${page.id === activeId ? "active" : ""} ${dragIndex === index ? "dragging" : ""} ${pageFeedback?.pageId === page.id ? `effect-${pageFeedback.effect}` : ""}`}
             draggable
             onClick={() => setActiveId(page.id)}
             onDragStart={() => setDragIndex(index)}
@@ -198,7 +219,7 @@ export default function PdfEditor({ file, initialRotation, onClose, onApply }: P
             <button onClick={duplicatePage} title="Nhân bản trang"><Copy /><span>Nhân bản</span></button>
             <button className="danger" onClick={deletePage} disabled={pages.length <= 1} title="Xóa trang"><Trash2 /><span>Xóa trang</span></button>
           </div>
-          <div className="pdf-page-preview">{activePage && <><img src={activePage.thumbnail} alt={`Xem trước trang ${activeIndex + 1}`} /><span>{activeIndex + 1} / {pages.length}</span></>}</div>
+          <div className="pdf-page-preview">{activePage && <><img className={pageFeedback?.pageId === activePage.id ? `effect-${pageFeedback.effect}` : ""} src={activePage.thumbnail} alt={`Xem trước trang ${activeIndex + 1}`} />{pageFeedback && <span className="page-action-feedback" aria-live="polite">{pageFeedback.message}</span>}<span className="page-position">{activeIndex + 1} / {pages.length}</span></>}</div>
         </section>
       </div>}
 

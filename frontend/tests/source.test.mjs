@@ -60,3 +60,38 @@ test("footer nằm cuối màn hình nhưng không đè lên danh sách dài", a
   assert.match(styles, /footer\s*\{[^}]*flex:0 0 auto/s);
   assert.doesNotMatch(styles, /footer\s*\{[^}]*position:(?:fixed|sticky)/s);
 });
+
+test("preview kết quả cân chiều cao và trình xoay ưu tiên diện tích trang", async () => {
+  const [editor, styles] = await Promise.all([
+    readFile(new URL("../app/pdf-editor.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(editor, /EDITOR_RENDER_WIDTH = 960/);
+  assert.match(editor, /EDITOR_PREVIEW_QUALITY = 0\.9/);
+  assert.match(styles, /\.workspace-stage\.with-result-preview\s*\{[^}]*align-items:stretch/s);
+  assert.match(styles, /\.merge-preview-panel\s*\{[^}]*align-self:stretch/s);
+  assert.match(styles, /\.pdf-page-preview img\s*\{[^}]*width:100%[^}]*height:100%[^}]*object-fit:contain/s);
+  assert.match(styles, /\.pdf-page-preview\s*\{[^}]*overflow:hidden/s);
+});
+
+test("thay đổi danh sách vô hiệu hóa lượt gộp cũ", async () => {
+  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /mergeRunRef/);
+  assert.match(page, /invalidateOutput/);
+  assert.match(page, /ensureCurrentRun/);
+  assert.match(page, /const mergeItems = \[\.\.\.items\]/);
+});
+
+test("các thao tác từng trang có animation và phản hồi trạng thái", async () => {
+  const [editor, styles] = await Promise.all([
+    readFile(new URL("../app/pdf-editor.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+  for (const effect of ["move-left", "move-right", "rotate-left", "rotate-right", "duplicate", "delete"]) {
+    assert.match(editor, new RegExp(effect));
+  }
+  assert.match(editor, /page-action-feedback/);
+  assert.match(styles, /@keyframes page-rotate-right/);
+  assert.match(styles, /@keyframes page-duplicate/);
+  assert.match(styles, /button:active:not\(:disabled\)/);
+});
