@@ -2,10 +2,10 @@
 
 /* eslint-disable @next/next/no-img-element -- blob URL xem trước chỉ tồn tại trong trình duyệt */
 
-import Image from "next/image";
 import { ArrowDown, ArrowUp, CheckCircle2, ChevronDown, Download, ExternalLink, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, GripVertical, LoaderCircle, LockKeyhole, Merge, PencilLine, Plus, RotateCcw, Settings, ShieldCheck, Sparkles, Trash2, UploadCloud, X, Zap } from "lucide-react";
 import { ChangeEvent, DragEvent, useCallback, useEffect, useRef, useState } from "react";
 import PdfEditor from "./pdf-editor";
+import SausageFactoryLoader from "./sausage-factory-loader";
 
 const ACCEPTED = ["xlsx", "xls", "docx", "doc", "pptx", "ppt", "pdf", "jpg", "jpeg", "png", "webp"];
 const OFFICE = ["xlsx", "xls", "docx", "doc", "pptx", "ppt"];
@@ -83,7 +83,7 @@ async function waitForConverter(signal: AbortSignal, report: (message: string) =
   const delays = [0, 2000, 3500, 5000, 8000, 10000, 12000];
   for (let attempt = 0; attempt < delays.length; attempt += 1) {
     if (delays[attempt]) await pause(delays[attempt], signal);
-    report(attempt < 2 ? "Đang kết nối bộ xử lý..." : "Đang khởi động máy chủ — lần đầu có thể lâu hơn một chút...");
+    report(attempt < 2 ? "Đang khởi động dây chuyền..." : "Đang làm nóng dây chuyền — lần đầu có thể lâu hơn một chút...");
     try {
       const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(8000)]);
       const response = await fetch(`${API_URL}/health`, { signal: requestSignal, cache: "no-store" });
@@ -98,7 +98,7 @@ async function waitForConverter(signal: AbortSignal, report: (message: string) =
 
 async function convertOffice(file: File, signal: AbortSignal, report: (message: string) => void, excel: ExcelOptions) {
   await waitForConverter(signal, report);
-  report(`Đang chuyển đổi ${file.name}...`);
+  report(`Đang đưa ${file.name} vào dây chuyền...`);
   const form = new FormData();
   form.append("file", file, file.name);
   form.append("excel_layout", excel.layout);
@@ -284,7 +284,7 @@ export default function Home() {
         setProgress(Math.round(((index + 1) / items.length) * 92));
       }
       result.setTitle(outputName.replace(/\.pdf$/i, "")); result.setCreator("GopPDF");
-      setProcessingMessage("Đang kiểm tra và hoàn tất PDF...");
+      setProcessingMessage("Đang đóng gói và kiểm tra PDF...");
       setPageCount(result.getPageCount());
       if (result.getPageCount()) setResultOrientation(pageOrientation(result.getPage(0)));
       const pdfBytes = await result.save();
@@ -325,7 +325,7 @@ export default function Home() {
   return <main className="app-shell">
     <nav className="topbar" aria-label="Điều hướng chính">
       <a className="brand" href="#top" aria-label="Gộp PDF - Trang chủ"><span className="brand-mark"><FileText size={20} /><span className="brand-plus">+</span></span><span>Gộp<span>PDF</span></span></a>
-      <div className="nav-links"><a href="#how">Cách hoạt động</a><a href="#formats">Định dạng</a><button className="help-button" onClick={() => setSettingsOpen(true)} aria-label="Cài đặt"><Settings size={18} /> Cài đặt</button></div>
+      <div className="nav-links"><span className="company-badge">Nội bộ<span> · Kho Xúc Xích Nhà Máy Một PRO</span></span><a href="#formats">Định dạng</a><button className="help-button" onClick={() => setSettingsOpen(true)} aria-label="Cài đặt"><Settings size={18} /> Cài đặt</button></div>
     </nav>
 
     <section className="hero" id="top">
@@ -357,35 +357,23 @@ export default function Home() {
           {items.some((item) => ["xlsx", "xls"].includes(item.ext)) && <div className="excel-layout-note"><FileSpreadsheet size={18} /><div><strong>Bảng tính: {excelOptions.layout === "fit_width" ? "vừa chiều rộng" : excelOptions.layout === "single_page" ? "vừa một trang" : excelOptions.layout === "custom_scale" ? `tỉ lệ ${excelOptions.scale}%` : "giữ bố cục gốc"}</strong><span>{excelOptions.layout === "original" ? "Dùng thiết lập in có sẵn trong Excel" : `${excelOptions.pageSize.toUpperCase()} · ${excelOptions.orientation === "auto" ? "tự chọn hướng trang" : excelOptions.orientation === "landscape" ? "trang ngang" : "trang dọc"}`}</span></div><button onClick={() => setSettingsOpen(true)}>Điều chỉnh</button></div>}
           <div className="output-row"><label htmlFor="output-name">Tên tệp kết quả</label><div><input id="output-name" value={outputName} onChange={(event) => setOutputName(event.target.value)} /><span>PDF</span></div></div>
           {isMerging && <div className="progress-wrap" aria-live="polite"><div><span>Đang tạo PDF của bạn...</span><strong>{progress}%</strong></div><div className="progress-track"><span style={{ width: `${progress}%` }} /></div></div>}
-          {downloadUrl ? <div className="result-panel"><span className="result-check"><CheckCircle2 /></span><div><strong>Hoàn tất! PDF của bạn đã được tạo</strong><p>{finalName} · {pageCount} trang · {items.length} tệp</p></div><a className="primary-action success" href={downloadUrl} download={finalName}><Download size={20} /> Tải PDF</a><div className="result-links"><button onClick={() => setResultPreviewOpen(true)}><Eye size={14} /> Xem PDF bên cạnh</button><button onClick={() => { convertedCacheRef.current.clear(); setItems([]); setDownloadUrl(null); setProgress(0); setResultPreviewOpen(false); }}>Gộp bộ tệp mới</button></div></div> : <button className="primary-action" onClick={mergeFiles} disabled={isMerging}>{isMerging ? <LoaderCircle className="spin" size={20} /> : <Merge size={20} />}{isMerging ? "Đang gộp tệp..." : `Gộp ${items.length} tệp thành PDF`}</button>}
+          {downloadUrl ? <div className="result-panel"><span className="result-check"><CheckCircle2 /></span><div><strong>PDF đã đóng gói và sẵn sàng xuất xưởng!</strong><p>{finalName} · {pageCount} trang · {items.length} tệp</p></div><a className="primary-action success" href={downloadUrl} download={finalName}><Download size={20} /> Tải PDF</a><div className="result-links"><button onClick={() => setResultPreviewOpen(true)}><Eye size={14} /> Xem PDF bên cạnh</button><button onClick={() => { convertedCacheRef.current.clear(); setItems([]); setDownloadUrl(null); setProgress(0); setResultPreviewOpen(false); }}>Gộp bộ tệp mới</button></div></div> : <button className="primary-action" onClick={mergeFiles} disabled={isMerging}>{isMerging ? <LoaderCircle className="spin" size={20} /> : <Merge size={20} />}{isMerging ? "Đang gộp tệp..." : `Gộp ${items.length} tệp thành PDF`}</button>}
           <p className="privacy-line"><LockKeyhole size={14} /> Tệp được xử lý trong phiên này và không được lưu trữ lâu dài</p>
         </div>}
       </div>
       {resultPreviewOpen && (isMerging || downloadUrl) && <aside className={`merge-preview-panel ${resultOrientation}`} aria-label="Xem trước PDF đã gộp">
         <div className="merge-preview-header"><div><span>{isMerging ? "Đang tạo bản xem trước" : "PDF hoàn chỉnh"}</span><h2>{isMerging ? "Đang gộp tài liệu..." : finalName}</h2>{!isMerging && <p>{pageCount} trang · {items.length} tệp</p>}</div><button onClick={() => setResultPreviewOpen(false)} aria-label="Đóng khung xem trước"><X /></button></div>
-        {isMerging ? <div className="merge-processing" aria-live="polite"><span className="processing-icon"><LoaderCircle className="spin" /></span><strong>{progress}% hoàn tất</strong><p>{processingMessage}</p><div className="modal-progress"><span style={{ width: `${progress}%` }} /></div><div className="processing-list">{items.map((item) => <div key={item.id} className={item.status}><span>{item.status === "done" ? <CheckCircle2 /> : item.status === "processing" ? <LoaderCircle className="spin" /> : <span className="pending-dot" />}</span><strong>{item.file.name}</strong></div>)}</div><button onClick={() => abortRef.current?.abort()}>Hủy xử lý</button></div> : downloadUrl && <><div className="merged-pdf-frame"><iframe src={`${downloadUrl}#toolbar=0&navpanes=0&view=FitH`} title={`Xem trước ${finalName}`} /></div><div className="merge-preview-footer"><span><CheckCircle2 /> Sẵn sàng tải xuống</span><div>{resultFile && <button type="button" onClick={() => setEditingPdf({ kind: "result", file: resultFile })}><PencilLine /> Xoay từng trang</button>}<a href={downloadUrl} target="_blank" rel="noreferrer"><ExternalLink /> Mở tab mới</a><a className="mini-download" href={downloadUrl} download={finalName}><Download /> Tải PDF</a></div></div></>}
+        {isMerging ? <div className="merge-processing" aria-live="polite"><SausageFactoryLoader compact /><strong>{progress}% hoàn tất</strong><p>{processingMessage}</p><div className="modal-progress"><span style={{ width: `${progress}%` }} /></div><div className="processing-list">{items.map((item) => <div key={item.id} className={item.status}><span>{item.status === "done" ? <CheckCircle2 /> : item.status === "processing" ? <LoaderCircle className="spin" /> : <span className="pending-dot" />}</span><strong>{item.file.name}</strong></div>)}</div><button onClick={() => abortRef.current?.abort()}>Hủy xử lý</button></div> : downloadUrl && <><div className="merged-pdf-frame"><iframe src={`${downloadUrl}#toolbar=0&navpanes=0&view=FitH`} title={`Xem trước ${finalName}`} /></div><div className="merge-preview-footer"><span><CheckCircle2 /> Sẵn sàng tải xuống</span><div>{resultFile && <button type="button" onClick={() => setEditingPdf({ kind: "result", file: resultFile })}><PencilLine /> Xoay từng trang</button>}<a href={downloadUrl} target="_blank" rel="noreferrer"><ExternalLink /> Mở tab mới</a><a className="mini-download" href={downloadUrl} download={finalName}><Download /> Tải PDF</a></div></div></>}
       </aside>}
       </div>
       <div className="trust-row"><span><ShieldCheck size={17} /> Kết nối bảo mật</span><span><Zap size={17} /> Xử lý nhanh</span><span><CheckCircle2 size={17} /> Không cần đăng ký</span></div>
-    </section>
-
-    <section className="brand-showcase" aria-label="Hình ảnh GộpPDF dành cho Kho Xúc Xích Nhà Máy Một PRO">
-      <div className="brand-showcase-frame">
-        <Image
-          src="/goppdf-long-kho.png"
-          alt="GộpPDF — Mọi tệp tin, một PDF — Kho Xúc Xích Nhà Máy Một PRO"
-          width={1730}
-          height={909}
-          sizes="(max-width: 700px) calc(100vw - 24px), (max-width: 1200px) calc(100vw - 64px), 1080px"
-        />
-      </div>
     </section>
 
     {preview && <div className="preview-overlay" role="dialog" aria-modal="true" aria-labelledby="preview-title" onMouseDown={(event) => { if (event.currentTarget === event.target) closePreview(); }}>
       <div className={`preview-card ${preview.orientation}`}>
         <div className="preview-header"><div><span>Bản xem trước</span><h2 id="preview-title">{preview.name}</h2>{preview.pages && <p>{preview.pages} trang</p>}</div><button onClick={closePreview} aria-label="Đóng bản xem trước"><X /></button></div>
         <div className={`preview-canvas ${preview.kind}`}>
-          {preview.loading ? <div className="preview-message"><LoaderCircle className="spin" /><strong>Đang chuẩn bị...</strong><p>{preview.message}</p></div> : preview.error ? <div className="preview-message error"><X /><strong>Không thể xem trước</strong><p>{preview.error}</p><button onClick={() => { const item = items.find((entry) => entry.id === preview.itemId); if (item) previewItem(item); }}>Thử lại</button></div> : preview.kind === "image" ? <img src={preview.url} alt={`Xem trước ${preview.name}`} /> : <iframe src={`${preview.url}#toolbar=0&navpanes=0`} title={`Xem trước ${preview.name}`} />}
+          {preview.loading ? <div className="preview-message"><SausageFactoryLoader compact /><strong>Đang chuẩn bị...</strong><p>{preview.message}</p></div> : preview.error ? <div className="preview-message error"><X /><strong>Không thể xem trước</strong><p>{preview.error}</p><button onClick={() => { const item = items.find((entry) => entry.id === preview.itemId); if (item) previewItem(item); }}>Thử lại</button></div> : preview.kind === "image" ? <img src={preview.url} alt={`Xem trước ${preview.name}`} /> : <iframe src={`${preview.url}#toolbar=0&navpanes=0`} title={`Xem trước ${preview.name}`} />}
         </div>
         <div className="preview-footer"><span>{preview.kind === "image" ? "Ảnh gốc · tự động vừa trang A4 khi gộp" : "PDF giữ nguyên chất lượng văn bản và vector"}</span>{preview.url && <a href={preview.url} target="_blank" rel="noreferrer"><ExternalLink /> Mở trong tab mới</a>}</div>
       </div>
@@ -395,12 +383,6 @@ export default function Home() {
 
     {settingsOpen && <div className="processing-overlay" role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(event) => { if (event.currentTarget === event.target) setSettingsOpen(false); }}><div className="settings-card"><button className="close-settings" onClick={() => setSettingsOpen(false)} aria-label="Đóng cài đặt"><X /></button><h2 id="settings-title">Cài đặt</h2><label>Ngôn ngữ<input value="Tiếng Việt" disabled /></label><label>Tên tệp mặc định<input value={outputName} onChange={(event) => setOutputName(event.target.value)} /></label><div className="settings-divider"><span>Bố cục Excel</span></div><label>Cách chia trang<select value={excelOptions.layout} onChange={(event) => updateExcelOptions({ layout: event.target.value as ExcelOptions["layout"] })}><option value="fit_width">Vừa chiều rộng — khuyên dùng</option><option value="single_page">Thu nhỏ vừa một trang</option><option value="custom_scale">Tỉ lệ tùy chỉnh</option><option value="original">Giữ thiết lập in gốc</option></select></label>{excelOptions.layout === "custom_scale" && <label className="scale-control"><span>Tỉ lệ thu phóng <strong>{excelOptions.scale}%</strong></span><input type="range" min="25" max="150" step="5" value={excelOptions.scale} onChange={(event) => updateExcelOptions({ scale: Number(event.target.value) })} /><div><small>25%</small><small>100%</small><small>150%</small></div></label>}<div className="setting-pair"><label>Khổ giấy<select value={excelOptions.pageSize} disabled={excelOptions.layout === "original"} onChange={(event) => updateExcelOptions({ pageSize: event.target.value as ExcelOptions["pageSize"] })}><option value="a4">A4</option><option value="a3">A3</option><option value="letter">Letter</option></select></label><label>Hướng trang<select value={excelOptions.orientation} disabled={excelOptions.layout === "original"} onChange={(event) => updateExcelOptions({ orientation: event.target.value as ExcelOptions["orientation"] })}><option value="auto">Tự động</option><option value="landscape">Ngang</option><option value="portrait">Dọc</option></select></label></div><p className="settings-hint">“Vừa chiều rộng” chống mất cột tự động. “Tỉ lệ tùy chỉnh” cho phép chọn 25–150%; tỉ lệ lớn hơn giúp chữ rõ hơn nhưng có thể chia cột sang trang tiếp theo.</p><button className="primary-action" onClick={() => setSettingsOpen(false)}>Áp dụng cài đặt</button></div></div>}
 
-    <section className="steps" id="how"><div className="section-label">Đơn giản từ đầu đến cuối</div><h2>Ba bước. Xong ngay.</h2><div className="step-grid">
-      <article><span className="step-number">01</span><div className="step-icon"><UploadCloud /></div><h3>Thêm tệp</h3><p>Chọn hoặc kéo thả mọi tài liệu bạn muốn gộp.</p></article>
-      <article><span className="step-number">02</span><div className="step-icon"><GripVertical /></div><h3>Sắp xếp</h3><p>Kéo các tệp theo đúng thứ tự trang bạn cần.</p></article>
-      <article><span className="step-number">03</span><div className="step-icon"><Download /></div><h3>Tải PDF</h3><p>Nhấn gộp và tải tệp PDF hoàn chỉnh về máy.</p></article>
-    </div></section>
-
-    <footer><div className="brand footer-brand"><span className="brand-mark"><FileText size={18} /><span className="brand-plus">+</span></span><span>Gộp<span>PDF</span></span></div><p>Công cụ gộp tài liệu nhẹ nhàng cho công việc mỗi ngày.</p><button><span className="status-dot" /> Hệ thống hoạt động tốt <ChevronDown size={14} /></button></footer>
+    <footer><div className="brand footer-brand"><span className="brand-mark"><FileText size={18} /><span className="brand-plus">+</span></span><span>Gộp<span>PDF</span></span></div><p>Công cụ nội bộ · Kho Xúc Xích Nhà Máy Một PRO</p><button><span className="status-dot" /> Hệ thống hoạt động tốt <ChevronDown size={14} /></button></footer>
   </main>;
 }

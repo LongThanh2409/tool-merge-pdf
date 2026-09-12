@@ -4,6 +4,7 @@
 
 import { ArrowLeft, ArrowRight, Copy, GripVertical, LoaderCircle, RotateCcw, RotateCw, Save, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import SausageFactoryLoader from "./sausage-factory-loader";
 
 type EditorPage = {
   id: string;
@@ -170,7 +171,7 @@ export default function PdfEditor({ file, initialRotation, onClose, onApply }: P
         <button onClick={onClose} disabled={saving} aria-label="Đóng trình chỉnh sửa"><X /></button>
       </header>
 
-      {loading ? <div className="pdf-editor-loading"><LoaderCircle className="spin" /><strong>Đang tạo ảnh xem trước từng trang</strong><p>Tài liệu nhiều trang có thể cần thêm một chút thời gian.</p></div> : error && !pages.length ? <div className="pdf-editor-loading error"><X /><strong>Không thể mở PDF</strong><p>{error}</p><button onClick={onClose}>Đóng</button></div> : <div className="pdf-editor-workspace">
+      {loading ? <div className="pdf-editor-loading"><SausageFactoryLoader /><strong>Đang đưa từng trang qua dây chuyền</strong><p>Tài liệu nhiều trang có thể cần thêm một chút thời gian.</p></div> : error && !pages.length ? <div className="pdf-editor-loading error"><X /><strong>Không thể mở PDF</strong><p>{error}</p><button onClick={onClose}>Đóng</button></div> : <div className="pdf-editor-workspace">
         <aside className="pdf-page-list" aria-label="Danh sách trang PDF">
           <div className="pdf-page-list-heading"><strong>Các trang</strong><span>Kéo để sắp xếp</span></div>
           <div className="pdf-page-grid">{pages.map((page, index) => <button
