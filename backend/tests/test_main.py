@@ -27,6 +27,12 @@ def test_health_has_explicit_state():
     assert response.json()["status"] in {"online", "error"}
 
 
+def test_health_allows_browser_cors():
+    response = client.get("/health", headers={"Origin": "http://localhost:3000"})
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "*"
+
+
 def test_rejects_unsupported_extension():
     response = client.post("/convert", files={"file": ("notes.txt", b"hello", "text/plain")})
     assert response.status_code == 415

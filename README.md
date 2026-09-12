@@ -64,7 +64,7 @@ npm install
 npm run dev
 ```
 
-Mở `http://localhost:3000`. Biến `NEXT_PUBLIC_API_URL` phải trỏ tới backend, không có dấu `/` cuối.
+Mở `http://localhost:3000`. Cấu hình mẫu gọi backend Render tại `https://tool-merge-pdf.onrender.com`; đổi `NEXT_PUBLIC_API_URL` về `http://localhost:8000` nếu muốn dùng backend local.
 
 ## Biến môi trường
 
@@ -72,7 +72,7 @@ Frontend:
 
 | Biến | Mặc định | Ý nghĩa |
 |---|---|---|
-| `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | URL backend LibreOffice |
+| `NEXT_PUBLIC_API_URL` | `https://tool-merge-pdf.onrender.com` | URL backend LibreOffice |
 | `NEXT_PUBLIC_SITE_URL` | `http://localhost:3000` | URL frontend cho metadata |
 
 Backend:
@@ -85,14 +85,14 @@ Backend:
 | `MAX_FILES` | `50` | Cấu hình số tệp tối đa để mở rộng batch API |
 | `MAX_CONCURRENCY` | `2` | Số lượt LibreOffice chạy đồng thời |
 | `CONVERSION_TIMEOUT_SECONDS` | `120` | Timeout mỗi lần chuyển đổi |
-| `ALLOWED_ORIGINS` | `http://localhost:3000` | Danh sách origin, phân cách bằng dấu phẩy |
+| `ALLOWED_ORIGINS` | `*` | Origin được gọi API; API công khai mặc định cho phép mọi frontend |
 | `LIBREOFFICE_PATH` | tự tìm | Đường dẫn `soffice` nếu không có trong PATH |
 
 ## Deploy backend lên Render
 
 1. Đẩy source lên GitHub/GitLab.
 2. Trong Render chọn **New → Blueprint** và chọn repository. Render đọc `render.yaml` và build `backend/Dockerfile`.
-3. Điền `ALLOWED_ORIGINS` bằng URL Vercel chính thức, ví dụ `https://goppdf.vercel.app`. Có thể thêm nhiều origin, phân cách bằng dấu phẩy.
+3. `ALLOWED_ORIGINS=*` mặc định hỗ trợ cả frontend local và Vercel. Nếu muốn giới hạn origin, nhập URL Vercel chính thức; có thể thêm nhiều origin, phân cách bằng dấu phẩy.
 4. Sau khi deploy, mở `https://<render-service>/health` và kiểm tra `ready: true`.
 5. Gói miễn phí có thể cold start. Frontend tự ping, hiển thị trạng thái khởi động và retry hữu hạn trước khi báo lỗi.
 

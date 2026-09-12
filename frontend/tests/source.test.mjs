@@ -30,6 +30,7 @@ test("có pipeline thật cho PDF, ảnh và Office", async () => {
   assert.match(page, /Xem PDF bên cạnh/);
   assert.match(page, /PdfEditor/);
   assert.match(page, /resultOrientation/);
+  assert.match(page, /Xoay từng trang/);
   const editor = await readFile(new URL("../app/pdf-editor.tsx", import.meta.url), "utf8");
   assert.match(editor, /pdfjs-dist/);
   assert.match(editor, /Chỉnh sửa PDF/);

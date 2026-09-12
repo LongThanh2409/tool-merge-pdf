@@ -6,7 +6,9 @@ services:
     dockerContext: ./backend
     healthCheckPath: /health
     region: singapore
-    plan: free
+    # LibreOffice regularly exceeds the 512 MB available on Render Free.
+    # Keep the 2 GB instance used by the last known-good deployment.
+    plan: 1c-2g
     envVars:
       - key: MAX_FILE_SIZE_MB
         value: 100
@@ -19,4 +21,4 @@ services:
       - key: CONVERSION_TIMEOUT_SECONDS
         value: 120
       - key: ALLOWED_ORIGINS
-        sync: false
+        value: "*"

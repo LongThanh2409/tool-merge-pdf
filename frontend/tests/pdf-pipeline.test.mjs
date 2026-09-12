@@ -62,3 +62,16 @@ test("chỉnh sửa cấp trang giữ đúng thứ tự, bản sao và góc xoay
   assert.deepEqual(edited.getPages().map((page) => page.getWidth()), [240, 200, 200]);
   assert.deepEqual(edited.getPages().map((page) => page.getRotation().angle), [90, 0, 180]);
 });
+
+test("xoay riêng một trang cộng đúng với hướng có sẵn", async () => {
+  const source = await PDFDocument.create();
+  source.addPage([200, 300]).setRotation(degrees(270));
+  source.addPage([200, 300]);
+  const loaded = await PDFDocument.load(await source.save());
+  const output = await PDFDocument.create();
+  const pages = await output.copyPages(loaded, loaded.getPageIndices());
+  pages[0].setRotation(degrees((pages[0].getRotation().angle + 90) % 360));
+  pages.forEach((page) => output.addPage(page));
+  const edited = await PDFDocument.load(await output.save());
+  assert.deepEqual(edited.getPages().map((page) => page.getRotation().angle), [0, 0]);
+});

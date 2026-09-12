@@ -16,7 +16,7 @@ type PdfEditorProps = {
   file: File;
   initialRotation: number;
   onClose: () => void;
-  onApply: (file: File) => void;
+  onApply: (file: File) => void | Promise<void>;
 };
 
 const MAX_EDITOR_PAGES = 200;
@@ -156,7 +156,7 @@ export default function PdfEditor({ file, initialRotation, onClose, onApply }: P
       output.setCreator("GopPDF PDF Editor");
       const bytes = await output.save();
       const editedFile = new File([new Uint8Array(bytes)], file.name, { type: "application/pdf", lastModified: Date.now() });
-      onApply(editedFile);
+      await onApply(editedFile);
     } catch (cause) {
       setError(cause instanceof Error ? `Không thể lưu chỉnh sửa: ${cause.message}` : "Không thể lưu chỉnh sửa PDF.");
       setSaving(false);

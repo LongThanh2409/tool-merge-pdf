@@ -34,7 +34,7 @@ MAX_TOTAL_SIZE = int(os.getenv("MAX_TOTAL_SIZE_MB", "500")) * 1024 * 1024
 MAX_FILES = int(os.getenv("MAX_FILES", "50"))
 CONVERSION_TIMEOUT = int(os.getenv("CONVERSION_TIMEOUT_SECONDS", "120"))
 MAX_CONCURRENCY = int(os.getenv("MAX_CONCURRENCY", "2"))
-ALLOWED_ORIGINS = [value.strip() for value in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",") if value.strip()]
+ALLOWED_ORIGINS = [value.strip() for value in os.getenv("ALLOWED_ORIGINS", "*").split(",") if value.strip()]
 semaphore = asyncio.Semaphore(MAX_CONCURRENCY)
 
 
